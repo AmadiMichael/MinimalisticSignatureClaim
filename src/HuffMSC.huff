@@ -1,0 +1,304 @@
+#define function claim(address _to, uint256 _amount, uint8 _v, bytes32 _r, bytes32 _s) nonpayable returns ()
+#define function hasClaimed(address _addr) view returns (bool)
+
+#define error ClaimNotStarted()
+#define error ClaimOver()
+#define error ClaimedAlready()
+#define error InvalidSignature()
+#define error WrongOwner()
+#define error TransferFailed()
+
+
+// immutables but with placeholders, at compile time, real values will be added in the test file
+// #define constant TOKEN_ADDRESS = 0x00
+// #define constant OWNER = 0x00
+// #define constant START = 0x00
+// #define constant DEADLINE = 0x00
+
+
+#define macro MAIN() = {
+    returndatasize                                          // [0x00]
+    calldataload                                            // [data[0x00]]
+    0xe0                                                    // [0xe0, data[0x00]]
+    shr                                                     // [sig]
+    
+    dup1                                                    // [sig, sig]
+    __FUNC_SIG(claim)                                       // [func_sig(claim), sig, sig]
+    eq                                                      // [(func_sig(claim) == sig), sig]
+    CLAIM_IMPL                                              // [CLAIM_IMPL, (func_sig(claim) == sig), sig]
+    jumpi                                                   // [sig]
+    
+    __FUNC_SIG(hasClaimed)                                  // [func_sig(hasClaimed), sig]
+    eq                                                      // [(func_sig(hasClaimed) == sig)]
+    HAS_CLAIMED_IMPL                                        // [HAS_CLAIMED_IMPL, (func_sig(hasClaimed) == sig)]
+    jumpi                                                   // []
+    
+
+    returndatasize                                          // [0x00]
+    returndatasize                                          // [0x00, 0x00]
+    revert                                                  // []
+
+
+    CLAIM_IMPL:                                             // [sig]
+        CLAIM()                                             
+        
+    HAS_CLAIMED_IMPL:                                       // []
+        HAS_CLAIMED()                                       
+}
+
+
+
+#define macro CLAIM() = {
+    callvalue                                               // [value]
+    iszero                                                  // [(value == 0)]
+    EXECUTE                                                 // [EXECUTE, (value == 0)]
+    jumpi                                                   // []
+    
+    returndatasize                                          // [0x00]
+    returndatasize                                          // [0x00, 0x00]
+    revert                                                  // []
+    
+
+    EXECUTE:
+    // clean upper bits of input types not up to 256 bits
+    0x04                                                    // [0x04]
+    calldataload                                            // [_to]
+    _CLEAN_ADDRESS_UPPER_BITS()                             // [_to]
+    
+
+    // if _start has not reached, revert
+    timestamp                                               // [timestamp, _to]
+    [START]                                                 // [START, timestamp, _to]
+    gt                                                      // [(START > timestamp), _to]
+    revert_ClaimNotStarted                                  // [revert_ClaimNotStarted, (START > timestamp), _to]
+    jumpi                                                   // [_to]
+    
+
+    // if _deadline has passed, revert
+    timestamp                                               // [timestamp, _to]
+    [DEADLINE]                                              // [DEADLINE, timestamp, _to]
+    lt                                                      // [(DEADLINE < timestamp), _to]
+    revert_ClaimOver                                        // [revert_ClaimOver, (DEADLINE < timestamp), _to]
+    jumpi                                                   // [_to]
+    
+
+    // _to is used as the storage slot for if an address has claimed or not
+    dup1                                                    // [_to, _to]
+    sload                                                   // [sload[_to], _to]
+    revert_ClaimedAlready                                   // [revert_ClaimedAlready, sload[_to], _to]
+    jumpi                                                   // [_to]
+    
+
+    // abi.encode (chainid, address(this), _to, _amount) and hash to get the hash expected to have been signed
+    chainid                                                 // [chainId, _to]
+    returndatasize                                          // [0x00, chainId, _to]
+    mstore                                                  // [_to]
+
+    address                                                 // [address, _to]
+    msize                                                   // [0x20, address, _to]
+    mstore                                                  // [_to]
+    
+    dup1                                                    // [_to, _to]
+    msize                                                   // [0x40, _to, _to]
+    mstore                                                  // [_to]
+    
+    0x24                                                    // [0x24, _to]
+    calldataload                                            // [_amount, _to]
+    dup1                                                    // [_amount, _amount, _to]
+    msize                                                   // [0x60, _amount, _amount, _to]
+    mstore                                                  // [_amount, _to]
+
+    // ecrecover, _signer is default as address(0)
+    returndatasize                                          // [_signer, _amount, _to]
+
+    // hash memory[0x00:0x80]
+    msize                                                   // [0x80, _signer, _amount, _to]
+    returndatasize                                          // [returnDataSize, 0x80, _signer, _amount, _to]
+    sha3                                                    // [_messageHash _signer, _amount, _to]
+    
+
+    // abi encode call parameters into memory and make call.
+    returndatasize                                          // [0x00, _messageHash _signer, _amount, _to]
+    mstore                                                  // [_signer, _amount, _to]
+    
+    0x44                                                    // [0x44, _signer, _amount, _to]
+    calldataload                                            // [_v, _signer, _amount, _to]
+    _CLEAN_UINT8_UPPER_BITS()                               // [_v, _signer, _amount, _to]
+    0x20                                                    // [0x20, _v, _signer, _amount, _to]
+    mstore                                                  // [_signer, _amount, _to]
+    
+    0x64                                                    // [0x64, _signer, _amount, _to]
+    calldataload                                            // [_r, _signer, _amount, _to]
+    0x40                                                    // [0x40, _r, _signer, _amount, _to]
+    mstore                                                  // [_signer, _amount, _to]
+    
+    0x84                                                    // [0x84, _signer, _amount, _to]
+    calldataload                                            // [_s, _signer, _amount, _to]
+    0x60                                                    // [0x60, _s, _signer, _amount, _to]
+    mstore                                                  // [_signer, _amount, _to]
+    
+    // make ecrecover precompile call
+    returndatasize                                          // [0x00, _signer, _amount, _to]
+    returndatasize                                          // [0x00, 0x00, _signer, _amount, _to]
+    msize                                                   // [0x80, 0x00, 0x00, _signer, _amount, _to]
+    returndatasize                                          // [0x00, 0x80, 0x00, 0x00, _signer, _amount, _to]
+    0x01                                                    // [0x01, 0x00, 0x80, 0x00, 0x00, _signer, _amount, _to]
+    gas                                                     // [gas, 0x01, 0x00, 0x80, 0x00, 0x00, _signer, _amount, _to]
+    staticcall                                              // [success, _signer, _amount, _to]
+    pop                                                     // [_signer, _amount, _to]
+    
+
+    // if returndata > 0 then set the returned data as the recovered signer
+    returndatasize                                          // [returnDataSize, _signer, _amount, _to]
+    iszero                                                  // [(returnDataSize == 0), _signer, _amount, _to]
+    CONTINUE                                                // [CONTINUE, (returnDataSize == 0), _signer, _amount, _to]
+    jumpi                                                   // [_signer, _amount, _to]
+
+    pop                                                     // [_amount, _to]
+    returndatasize                                          // [returnDataSize, _amount, _to]
+    callvalue                                               // [0x00, returnDataSize, _amount, _to]
+    callvalue                                               // [0x00, 0x00, returnDataSize, _amount, _to]
+    returndatacopy                                          // [_amount, _to]
+    
+    callvalue                                               // [0x00,  _amount, _to]
+    mload                                                   // [_signer, _amount, _to]
+    
+    
+
+    CONTINUE:                                               // [_signer, _amount, _to]
+    // if no return data (only case where _signer can still be address(0) at this point) revert
+    dup1                                                    // [_signer, _signer, _amount, _to]
+    iszero                                                  // [(_signer == 0), _signer, _amount, _to]
+    revert_InvalidSignature                                 // [revert_InvalidSignature, (_signer == 0), _signer, _amount, _to]
+    jumpi                                                   // [_signer, _amount, _to]
+    
+    // if _signer not same as _owner, revert
+    [OWNER]                                                 // [OWNER, _signer, _amount, _to]
+    _CLEAN_ADDRESS_UPPER_BITS()                             // [OWNER, _signer,  _amount, _to]
+    sub                                                     // [(OWNER - _signer),  _amount, _to]
+    revert_WrongOwner                                       // [revert_WrongOwner, (OWNER - _signer),  _amount, _to]
+    jumpi                                                   // [_amount, _to]
+    
+
+
+    // set _to to have claimed
+    0x01                                                    // [0x01, _amount, _to]
+    dup3                                                    // [_to, 0x01, _amount, _to]
+    sstore                                                  // [_amount, _to]
+    
+
+
+    // make safeTransfer of _amount to _to
+    0xa9059cbb                                              // [0xa9059cbb, _amount, _to]
+    callvalue                                               // [0x00, 0xa9059cbb, _amount, _to]
+    mstore                                                  // [_amount, _to]
+    
+    0x40                                                    // [0x40, _amount, _to]
+    mstore                                                  // [_to]
+    
+    0x20                                                    // [0x20, _to]
+    mstore                                                  // []
+    
+    
+    0x20                                                    // [0x20]
+    callvalue                                               // [0x00, 0x20]
+    0x44                                                    // [0x44, 0x00, 0x20]
+    0x1c                                                    // [0x1c, 0x44, 0x00, 0x20]
+    callvalue                                               // [0x00, 0x1c, 0x44, 0x00, 0x20]
+    [TOKEN_ADDRESS]                                         // [TOKEN_ADDRESS, 0x00, 0x1c, 0x44, 0x00, 0x20]
+    _CLEAN_ADDRESS_UPPER_BITS()                             // [TOKEN_ADDRESS, 0x00,  0x1c, 0x44, 0x00, 0x20]
+    gas                                                     // [gas, TOKEN_ADDRESS, 0x00,  0x1c, 0x44, 0x00, 0x20]
+    call                                                    // [success]
+    
+
+    /** 
+        Safe transfer rule                                   
+        if or(
+            and(returndatasize(), sub(mload(0x00), 0x01)),
+            iszero(success)
+        ) {
+            mstore(0x00, 0x90b8ec18)
+            revert(0x1c, 0x04) // error TransferFailed()
+        }
+     */                                                     
+    iszero                                                  // [iszero(success)]
+    0x01                                                    // [0x01, iszero(success)]
+    callvalue                                               // [0x00, 0x01, iszero(success)]
+    mload                                                   // [mload[0x00], 0x01, iszero(success)]
+    sub                                                     // [(mload[0x00] - 0x01), iszero(success)]
+    returndatasize                                          // [returnDataSize, (mload[0x00] - 0x01), iszero(success)]
+    and                                                     // [(returnDataSize & (mload[0x00] - 0x01)), iszero(success)]
+    or                                                      // [((returnDataSize & (mload[0x00] - 0x01)) | iszero(success))]
+    revert_TransferFailed                                   // [revert_TransferFailed, ((returnDataSize & (mload[0x00] - 0x01)) | iszero(success))]
+    jumpi                                                   // []
+     
+     
+    stop                                                    // []
+
+
+    revert_ClaimNotStarted:
+        __ERROR(ClaimNotStarted)                            // [error_sig(ClaimNotStarted)]
+        _REVERT_WITH_ERROR_SIG()                            // []
+        
+    revert_ClaimOver:
+        __ERROR(ClaimOver)                                  // [error_sig(ClaimOver)]
+        _REVERT_WITH_ERROR_SIG()                            // []
+
+    revert_ClaimedAlready:
+        __ERROR(ClaimedAlready)                             // [error_sig(ClaimedAlready)]
+        _REVERT_WITH_ERROR_SIG()                            // []
+
+    revert_InvalidSignature:
+        __ERROR(InvalidSignature)                           // [error_sig(InvalidSignature)]
+        _REVERT_WITH_ERROR_SIG()                            // []
+
+    revert_WrongOwner:
+        __ERROR(WrongOwner)                                 // [error_sig(WrongOwner)]
+        _REVERT_WITH_ERROR_SIG()                            // []
+
+    revert_TransferFailed:
+        __ERROR(TransferFailed)                             // [error_sig(TransferFailed)]
+        _REVERT_WITH_ERROR_SIG()                            // []
+}
+
+
+#define macro HAS_CLAIMED() = {
+    0x04                                                    // [0x04]
+    calldataload                                            // [addr]
+    _CLEAN_ADDRESS_UPPER_BITS()                             // [addr]
+
+    sload                                                   // [has_claimed]
+    returndatasize                                          // [returnDataSize, has_claimed]
+    mstore                                                  // []
+    
+    msize                                                   // [msize]
+    returndatasize                                          // [returnDataSize, msize]
+    return                                                  // []
+}
+
+
+
+#define macro _REVERT_WITH_ERROR_SIG() = {
+    // Input stack                                          // [err_sig]
+    
+    callvalue                                               // [0x00, err_sig]
+    mstore                                                  // []
+    
+    0x04                                                    // [0x04]
+    callvalue                                               // [0x00, 0x04]
+    revert                                                  // []
+}
+
+#define macro _CLEAN_ADDRESS_UPPER_BITS() = {
+    // Input stack                                          // [addr]
+
+    0xffffffffffffffffffffffffffffffffffffffff              // [0xffffffffffffffffffffffffffffffffffffffff, addr]
+    and                                                     // [addr]
+}
+
+#define macro _CLEAN_UINT8_UPPER_BITS() = {
+    // Input stack                                          // [addr]
+
+    0xff                                                    // [0xff, addr]
+    and                                                     // [addr]
+}
