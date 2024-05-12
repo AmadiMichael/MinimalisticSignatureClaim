@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import {MinimalisticSignatureClaim} from "../src/InlineAssemblyMSC.sol";
+import {MinimalisticSignatureClaim} from "../../src/MSC/InlineAssemblyMSC.sol";
 import {BaseMSCTest} from "./BaseMSC.t.sol";
 
 contract InlineAssemblyMSCTest is BaseMSCTest {

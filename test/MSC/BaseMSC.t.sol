@@ -31,7 +31,7 @@ abstract contract BaseMSCTest is Test {
 
         minimalisticSignatureClaim = IMinimalisticSignatureClaim(_deployAndReturnMSC());
 
-        token.mint(address(minimalisticSignatureClaim), 100_000 ether);
+        token.mint(address(minimalisticSignatureClaim), 1_000_000 ether);
     }
 
     // IMPLEMENTED IN INHERITING CONTRACTS
