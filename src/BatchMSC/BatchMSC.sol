@@ -89,7 +89,7 @@ contract BatchMinimalisticSignatureClaim {
             _success := true
 
             for {} iszero(gt(currentSlot, endSlot)) { currentSlot := add(currentSlot, 0x01) } {
-                // if it's the last slot
+                // if it's the last slot and does not use all bits in the slot
                 switch and(eq(currentSlot, endSlot), gt(lastSlotOffset, 0))
                 case 1 {
                     // get the upper bitsize to be untouched
